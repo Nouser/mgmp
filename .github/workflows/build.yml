@@ -1,0 +1,68 @@
+# .github/workflows/build.yml
+# Builds mgmp.dll + mgmp_loader.exe on a clean GitHub-hosted Windows runner,
+# runs the pure-logic tests, and uploads mgmp-Release.zip as an artifact.
+# Runs only when triggered by hand: Actions tab -> "build" -> "Run workflow".
+# Tick "Create a GitHub Release" to also attach the zip to a release.
+
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create a GitHub Release with this tag (leave blank for artifact only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write      # needed to attach files to a Release
+  id-token: write      # needed for build provenance attestation
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -A x64
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test (skips test_resolve_live, which needs the real game binary)
+        run: ctest --test-dir build --build-config Release --output-on-failure -E test_resolve_live
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item build\Release\mgmp_loader.exe dist\
+          Copy-Item build\Release\mgmp.dll dist\
+          Copy-Item mgmp.json.template dist\mgmp.json
+          Copy-Item README.md dist\
+          Compress-Archive -Path dist\* -DestinationPath mgmp-Release.zip
+          Get-FileHash mgmp-Release.zip -Algorithm SHA256 | Format-List
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mgmp-Release
+          path: mgmp-Release.zip
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            mgmp-Release.zip
+            build/Release/mgmp.dll
+            build/Release/mgmp_loader.exe
+
+      - name: Create release (only if a tag was given)
+        if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: mgmp-Release.zip
+          generate_release_notes: true
