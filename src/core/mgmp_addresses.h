@@ -105,7 +105,7 @@ static const TargetDesc kTargets[T_COUNT] = {
     // Kept because it is the cheapest end-to-end proof that the hook path works
     // without having to reach a battle, and because a frame fence is on the
     // roadmap anyway.
-    { 0x009A9D80, "FRAME",    "glaiel::ApplicationBase::FrameBegin" },
+    { 0x009B7870, "FRAME",    "glaiel::ApplicationBase::FrameBegin" },
 
     // The command boundary. Every decision -- ability use, end turn, and the
     // std::function kind -- is queued by TurnControl::QueueDecision and lands
@@ -471,7 +471,7 @@ static const TargetDesc kTargets[T_COUNT] = {
 };
 
 // Coarse module guard, checked before the per-target signatures.
-static const uint32_t kExpectedSizeOfImage = 0x156B000;
+static const uint32_t kExpectedSizeOfImage = 0x1574000;
 
 // ---------------------------------------------------------------------------
 // Injection park point.
@@ -486,7 +486,7 @@ static const uint32_t kExpectedSizeOfImage = 0x156B000;
 // first call happens after all startup is done but before a single frame has
 // been simulated, which is early enough for every hook we care about. The only
 // thing that ordering costs is initSystems, which has already run by then.
-static const uint32_t kParkRva = 0x009A9D80;   // glaiel::ApplicationBase::FrameBegin
+static const uint32_t kParkRva = 0x009B7870;   // glaiel::ApplicationBase::FrameBegin
 static const uint8_t  kParkSig[16] = {
     0x48,0x8B,0xC4,0x48,0x89,0x58,0x10,0x48,0x89,0x70,0x18,0x48,0x89,0x78,0x20,0x55
 };
