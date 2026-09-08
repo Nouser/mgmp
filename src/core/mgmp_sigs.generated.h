@@ -126,7 +126,9 @@ static const SigDataDesc kSigData[] = {
       "40 57 48 83 EC 30 83 3D ? ? ? ? 02 48 8B F9 0F 85 ? ? ? ? 80 3D ? ? ? ? 00 74 12 F2 0F 10 15 ? ? ? ? F2 0F 10 1D ? ? ? ? EB 31",
       43, 47 },  // via 0x14097E3F7 in sub_14097E3D0
     { 0x013BB790, "ApplicationBase",
-      "48 83 EC 28 B9 38 0F 00 00 E8 ? ? ? ? 48 89 44 24 30 48 8B C8 E8 ? ? ? ? 90 48 89 05 ? ? ? ? 48 83 C4 28",
+      // Allocation size (mov ecx, imm32) wildcarded: it was 0xF38 on 21039 and
+      // 0xF50 on the current build. The cursor fields at +0xD40/+0xD60 did not move.
+      "48 83 EC 28 B9 ? ? 00 00 E8 ? ? ? ? 48 89 44 24 30 48 8B C8 E8 ? ? ? ? 90 48 89 05 ? ? ? ? 48 83 C4 28",
       31, 35 },  // via 0x14002569C in sub_140025680
 };
 static const int kSigDataCount = 3;
