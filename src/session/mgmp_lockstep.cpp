@@ -128,6 +128,14 @@ constexpr uintptr_t kChar_Shield   = 0x4B4;
 constexpr uintptr_t kChar_MaxHP    = 0x4BC;
 constexpr uintptr_t kChar_Dead     = 0x4C2;
 constexpr uintptr_t kTObj_Tile     = 0x48;
+
+// Character+0x80 is the cat's CatData: get_affecting_elements walks
+// *(Character+128)+264 for the equipment list, and equipment lives on CatData.
+// CatData+0x00 is the run-wide u64 id catsync keys on. Neither is trusted on
+// its own: the id is only USED when it appears in the run's own id list, and a
+// cat whose id does not simply ranks as "not in the lineup" (mgmp_split.h).
+constexpr uintptr_t kChar_CatData = 0x80;
+constexpr uintptr_t kCatData_Id   = 0x00;
 constexpr uintptr_t kTObj_Owner    = 0x98;
 
 // glaiel::Character::get_affecting_elements(Character*, ElementList* out).
@@ -173,6 +181,8 @@ struct State {
     uint32_t    cat_count      = 0;
     bool        local_cat[kMaxCats] = {};   // this peer's input decides for it
     bool        human_cat[kMaxCats] = {};   // a human brain drives it at all
+    uint64_t    cat_id[kMaxCats]    = {};   // CatData id, 0 when unreadable
+    uint32_t    lineup[kMaxCats]    = {};   // position in the run's cat list, or kNoLineup
     bool        snapped        = false;
     const void* snapped_list   = nullptr;   // the vector object we snapshotted
 
@@ -754,6 +764,35 @@ void snapshot_cats(void* turn_control) {
         if (g.human_cat[i]) ++g.humans;
     }
 
+    // --- where each cat sits in the party lineup ----------------------
+    //
+    // The split walks the run's own cat list rather than the roster, because
+    // the roster is rebuilt per battle and the lineup is not: see split_rank.
+    // Both peers read their own director -- the client's run is the host's,
+    // kept current by catsync -- so the ranking agrees without a message, and
+    // CONTROL still cross-checks the outcome the way it always did.
+    uint64_t       run_ids[kMaxCats];
+    const uint32_t run_n = catsync_run_ids(run_ids, kMaxCats);
+    uint32_t       in_lineup = 0;
+    for (uint32_t i = 0; i < g.cat_count; ++i) {
+        g.cat_id[i] = 0;
+        g.lineup[i] = kNoLineup;
+        const void* cd = nullptr;
+        uint64_t    id = 0;
+        if (!mem_read((const uint8_t*)g.cats[i] + kChar_CatData, &cd, sizeof(cd)) || !cd) continue;
+        if (!mem_read((const uint8_t*)cd + kCatData_Id, &id, sizeof(id)) || !id) continue;
+        g.cat_id[i] = id;
+        for (uint32_t k = 0; k < run_n; ++k)
+            if (run_ids[k] == id) { g.lineup[i] = k; ++in_lineup; break; }
+    }
+    if (run_n == 0)
+        log_line("LOCKSTEP", "!! the run's cat list is unreadable -- the split walks"
+                             " roster order for this battle");
+    else if (in_lineup == 0 && g.humans)
+        log_line("LOCKSTEP", "!! none of %u cats matched the run's %u ids -- Character+0x%X"
+                             " is not the CatData on this build; the split walks roster"
+                             " order for this battle", g.cat_count, run_n, (unsigned)kChar_CatData);
+
     // --- the control split ---------------------------------------------
     for (uint32_t i = 0; i < kMaxCats; ++i) g.local_cat[i] = false;
 
@@ -767,7 +806,7 @@ void snapshot_cats(void* turn_control) {
         // not as the source of it.
         //
         // Spread the human cats over however many players are in the session,
-        // in roster order, host first, with the remainder going to the earliest
+        // in lineup order, host first, with the remainder going to the earliest
         // positions. Four cats over three players is 2/1/1; three over two is
         // 2/1, which is what the two-player rule always did -- the old
         // `(humans+1)/2` is exactly this formula at P=2, so nothing changes for
@@ -789,12 +828,19 @@ void snapshot_cats(void* turn_control) {
         const SplitRange range = split_for(g.humans, P, pos);
         const uint32_t   mine  = range.count;
 
-        uint32_t seen = 0;
+        // Rank the humans by lineup position (roster order only breaks ties
+        // among cats that are not in the lineup), then hand out the ranks.
+        uint32_t lineup[kMaxCats], rank[kMaxCats], human_idx[kMaxCats];
+        uint32_t nh = 0;
         for (uint32_t i = 0; i < g.cat_count; ++i) {
             if (!g.human_cat[i]) continue;
-            g.local_cat[i] = split_owns(range, seen);
-            ++seen;
+            lineup[nh]    = g.lineup[i];
+            human_idx[nh] = i;
+            ++nh;
         }
+        split_rank(lineup, nh, rank);
+        for (uint32_t k = 0; k < nh; ++k)
+            g.local_cat[human_idx[k]] = split_owns(range, rank[k]);
 
         if (mine == 0 && g.humans)
             log_line("LOCKSTEP", "!! %u human cat(s) over %u player(s) leaves this "
@@ -835,14 +881,24 @@ void snapshot_cats(void* turn_control) {
         if (got && st.linked)     ++linked;
         if (got && plausible(st)) ++sane;
 
+        // Lineup position, or "-" for a cat that is not in the run's list.
+        // Printed for every cat so the split can be checked against the party
+        // screen by eye: the local half should be the first half of the lineup.
+        char lp[12];
+        if (g.lineup[i] == kNoLineup) strcpy_s(lp, "-");
+        else _snprintf_s(lp, sizeof(lp), _TRUNCATE, "%u", g.lineup[i]);
+
         if (got)
-            log_line("LOCKSTEP", "  cat %2u  %s  hp=%d/%d tile=(%d,%d)%s%s%s  brain=%s",
+            log_line("LOCKSTEP", "  cat %2u  %s  hp=%d/%d tile=(%d,%d)%s%s%s  brain=%s"
+                                 "  id=%016llx lineup=%s",
                      i, who, st.hp, st.maxhp, st.tx, st.ty,
                      st.dead ? " DEAD" : "",
                      st.linked      ? "" : " [unlinked]",
-                     plausible(st)  ? "" : " [odd]", bcls[i]);
+                     plausible(st)  ? "" : " [odd]", bcls[i],
+                     (unsigned long long)g.cat_id[i], lp);
         else
-            log_line("LOCKSTEP", "  cat %2u  %s  <state unreadable>  brain=%s", i, who, bcls[i]);
+            log_line("LOCKSTEP", "  cat %2u  %s  <state unreadable>  brain=%s  id=%016llx lineup=%s",
+                     i, who, bcls[i], (unsigned long long)g.cat_id[i], lp);
     }
 
     // --- is the state hash trustworthy on this build? ------------------

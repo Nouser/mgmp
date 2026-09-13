@@ -97,4 +97,10 @@ void catsync_on_message(const CatDataMsg& m);
 // battle screen, and it is still in time for whatever the node opens.
 void catsync_apply_pending(const char* why);
 
+// BOTH PEERS: the run's cat ids in lineup order, which is the order the control
+// split walks (mgmp_split.h, split_rank). Copies up to `max` ids into `out`
+// and returns how many; 0 when the director is not readable, which the caller
+// treats as "no lineup" rather than as an error.
+uint32_t catsync_run_ids(uint64_t* out, uint32_t max);
+
 } // namespace mgmp

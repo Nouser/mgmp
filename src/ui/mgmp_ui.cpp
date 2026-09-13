@@ -38,6 +38,7 @@ struct UI {
     bool     visible   = true;
     bool     ready     = false;   // ImGui context + backends alive
     bool     failed    = false;   // init tried and lost; do not retry every frame
+    bool     said_state = false;  // the one-shot state line in ui_on_swap
     uint32_t toggle_vk = 0x70;
 
     HWND     hwnd      = nullptr;
@@ -623,13 +624,32 @@ LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 // --- bring-up ---------------------------------------------------------------
 
+struct OwnWindow { DWORD pid; HWND best; };
+
+BOOL CALLBACK find_own_window(HWND h, LPARAM lp) {
+    OwnWindow* f = (OwnWindow*)lp;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(h, &pid);
+    if (pid != f->pid || !IsWindowVisible(h) || GetWindow(h, GW_OWNER)) return TRUE;
+    f->best = h;
+    return FALSE;
+}
+
 HWND game_window() {
     HMODULE ogl = GetModuleHandleA("opengl32.dll");
-    if (!ogl) return nullptr;
-    auto get_dc = (fn_wglGetCurrentDC)GetProcAddress(ogl, "wglGetCurrentDC");
-    if (!get_dc) return nullptr;
-    HDC dc = get_dc();
-    return dc ? WindowFromDC(dc) : nullptr;
+    if (ogl) {
+        auto get_dc = (fn_wglGetCurrentDC)GetProcAddress(ogl, "wglGetCurrentDC");
+        HDC  dc     = get_dc ? get_dc() : nullptr;
+        HWND w      = dc ? WindowFromDC(dc) : nullptr;
+        if (w) return w;
+    }
+    // No WGL DC current on this thread, or one with no window behind it (seen
+    // in the field: the deferred hookup never fired and the panel never came
+    // up, with nothing in the log to say why). The game's window is the one
+    // top-level, unowned, visible window this process has, so ask for that.
+    OwnWindow f{ GetCurrentProcessId(), nullptr };
+    EnumWindows(find_own_window, (LPARAM)&f);
+    return f.best;
 }
 
 // Runs on the first swap, because that is the first moment a GL context is
@@ -732,6 +752,16 @@ bool ui_captures_input() {
 
 void ui_on_swap(void* window) {
     (void)window;
+    // Once, before any early return: the panel has failed to appear in the
+    // field with no line in the log at all, and every exit below is silent by
+    // design. This says which one it took.
+    if (!g.said_state) {
+        g.said_state = true;
+        log_line("UI", "swap path reached: enabled=%d visible=%d ready=%d failed=%d"
+                       " hwnd=%p wndproc=%p",
+                 (int)g.enabled, (int)g.visible, (int)g.ready, (int)g.failed,
+                 (void*)g.hwnd, (void*)g.prev_wndproc);
+    }
     if (!g.enabled || g.failed) return;
 
     // Deferred from ui_init when there was no current DC then.

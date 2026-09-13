@@ -427,6 +427,15 @@ void catsync_apply_pending(const char* why) {
     g.held_in_battle = false;   // re-arms the line for the next battle
 }
 
+uint32_t catsync_run_ids(uint64_t* out, uint32_t max) {
+    RunCats rc;
+    if (!run_cats(rc)) return 0;
+    uint32_t n = rc.count < max ? rc.count : max;
+    for (uint32_t i = 0; i < n; ++i)
+        if (!mem_read(rc.ids + i, &out[i], sizeof(out[i]))) return 0;
+    return n;
+}
+
 void catsync_on_message(const CatDataMsg& m) {
     ensure_state();
     if (!g.on) return;

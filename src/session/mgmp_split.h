@@ -6,8 +6,9 @@
 // number of human cats, which is an expensive way to find out that a division
 // rounded the wrong way. Here it is a table.
 //
-// THE RULE. The battle's human-driven cats are handed out in roster order,
-// contiguously, one run per player, earliest positions first. Every player gets
+// THE RULE. The battle's human-driven cats are handed out in LINEUP order
+// (see split_rank below -- the party's order in the run, not the battle's
+// roster order), contiguously, one run per player, earliest positions first. Every player gets
 // floor(humans/P), and the first (humans % P) players get one extra -- so the
 // remainder lands on the host and the players nearest it, which is the same
 // preference the two-player rule had when it gave the host the odd cat.
@@ -67,6 +68,41 @@ inline SplitRange split_for(uint32_t humans, uint32_t peers, uint32_t pos) {
 // True when cat number `nth_human` (0-based, in roster order) belongs to us.
 inline bool split_owns(const SplitRange& r, uint32_t nth_human) {
     return nth_human >= r.start && nth_human < r.start + r.count;
+}
+
+// THE ORDER the human cats are walked in. Roster order was the original rule,
+// and the game rebuilds the roster for every battle -- so which cats fell in
+// the host's half changed from fight to fight, with nothing the players could
+// do about it. The run's own cat list (the party lineup, MewDirector+1472) is
+// stable for the whole adventure, so the humans are ranked by their position
+// in it and the split walks THAT order: the first half of the party is the
+// host's, and arranging the party IS choosing the split.
+//
+// A human cat that is not in the lineup at all (kNoLineup -- a summon, a
+// possessed enemy, or a build where the CatData link did not resolve) ranks
+// after every cat that is, in roster order, so it still gets exactly one owner
+// and never displaces a party cat. When NO cat is in the lineup this degrades
+// to the old roster-order rule, which is what makes it safe to ship without a
+// switch.
+//
+// `lineup[i]` is the lineup position of the i-th HUMAN cat in roster order, or
+// kNoLineup; `rank[i]` receives that cat's position in the split order, which
+// is what split_owns takes. Pure, so the tests can pin it; n is at most
+// kMaxCats, so the quadratic ranking is fine.
+constexpr uint32_t kNoLineup = 0xFFFFFFFFu;
+
+inline void split_rank(const uint32_t* lineup, uint32_t n, uint32_t* rank) {
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t r = 0;
+        for (uint32_t j = 0; j < n; ++j) {
+            if (j == i) continue;
+            // j precedes i on a smaller lineup position, or on the same one
+            // (only possible for two kNoLineup cats) when it is earlier in
+            // the roster.
+            if (lineup[j] < lineup[i] || (lineup[j] == lineup[i] && j < i)) ++r;
+        }
+        rank[i] = r;
+    }
 }
 
 } // namespace mgmp

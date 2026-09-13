@@ -142,6 +142,40 @@ int main() {
         }
     }
 
+    // --- split_rank: lineup order, roster order only as the tie-break ------
+    {
+        // Roster order A B C D, lineup positions 3 0 2 1 -> split order B D C A.
+        const uint32_t lineup[4] = { 3, 0, 2, 1 };
+        uint32_t rank[4];
+        split_rank(lineup, 4, rank);
+        check(rank[0] == 3 && rank[1] == 0 && rank[2] == 2 && rank[3] == 1,
+              "split_rank orders by lineup position");
+
+        // Cats outside the lineup rank after every cat in it, in roster order.
+        const uint32_t mixed[4] = { kNoLineup, 1, kNoLineup, 0 };
+        split_rank(mixed, 4, rank);
+        check(rank[3] == 0 && rank[1] == 1 && rank[0] == 2 && rank[2] == 3,
+              "cats outside the lineup rank last, in roster order");
+
+        // Nobody in the lineup degrades to roster order exactly.
+        const uint32_t none[3] = { kNoLineup, kNoLineup, kNoLineup };
+        split_rank(none, 3, rank);
+        check(rank[0] == 0 && rank[1] == 1 && rank[2] == 2,
+              "no lineup at all is roster order");
+
+        // Ranks are a permutation whatever the input, so split_owns still tiles.
+        const uint32_t odd[6] = { 5, kNoLineup, 5, 0, 9, kNoLineup };
+        split_rank(odd, 6, rank);
+        bool seen[6] = {};
+        bool perm = true;
+        for (int i = 0; i < 6; ++i) {
+            if (rank[i] >= 6 || seen[rank[i]]) perm = false; else seen[rank[i]] = true;
+        }
+        check(perm, "split_rank is a permutation even with duplicate positions");
+
+        split_rank(nullptr, 0, rank);   // n = 0 must be a no-op
+    }
+
     if (failures) { printf("test_split: FAILED -- %d failure(s)\n", failures); return 1; }
     printf("test_split: PASSED -- 0 failure(s)\n");
     return 0;

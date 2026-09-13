@@ -139,7 +139,10 @@ into a separate `mgmp_coop.sav`.
 > every hook at startup rather than partway through.
 
 From there you just play. When it is your cat's turn, you move it. When it is
-your partner's cat, you watch. Cats controlled by the computer are handled by
+your partner's cat, you watch. Which cats are yours follows the **party
+lineup**: the host gets the first half of the party as arranged on the party
+screen, the other player the second half (an odd cat goes to the host).
+Reorder the party to change the split; it stays put for the whole run. Cats controlled by the computer are handled by
 both machines identically and need no input from anyone.
 
 If you would rather attach the mod to a copy of the game that is already
@@ -225,7 +228,7 @@ Everything lives in `mgmp.json`, beside the loader.
 | `net.role` | `off`, `host`, or `client` |
 | `net.addr` | who to connect to (client), or what to listen on (host) |
 | `net.port` | default `27600` |
-| `net.control` | which cats you control. Leave on `"auto"` — it splits them evenly by itself. |
+| `net.control` | which cats you control. Leave on `"auto"` — it splits the party evenly, in lineup order, by itself. |
 | `ui.enabled` | whether the debug panel exists at all |
 | `ui.visible` | whether it starts visible |
 | `ui.key` | key to toggle it, default `F1` |
