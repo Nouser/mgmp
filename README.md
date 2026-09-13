@@ -139,7 +139,13 @@ into a separate `mgmp_coop.sav`.
 > every hook at startup rather than partway through.
 
 From there you just play. When it is your cat's turn, you move it. When it is
-your partner's cat, you watch. Which cats are yours follows the **party
+your partner's cat, you watch.
+
+**When the day ends** and the host goes back to the house, the joining player
+is told the host has left the run: press **Escape** and the mod presses *Quit
+To Menu* for you. Sit on the main menu; when the host sets out on the next
+adventure the mod loads the host's run again and presses Play, and you are
+back in. Which cats are yours follows the **party
 lineup**: the host gets the first half of the party as arranged on the party
 screen, the other player the second half (an odd cat goes to the host).
 Reorder the party to change the split; it stays put for the whole run. Cats controlled by the computer are handled by

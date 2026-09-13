@@ -406,9 +406,16 @@ void leave_pump() {
     // read the other way round: a reading we could not take must never become
     // half of "was in a run, now is not". That pair is the whole claim.
     if (here == Where::InRun) {
-        if (!g.was_in_run)
+        if (!g.was_in_run) {
             log_line("LEAVE", "the host is in a run -- the client will be told if "
                               "it leaves");
+            // BACK IN A RUN AFTER LEAVING ONE, with no slot click in between:
+            // the morning after a day at the house. The client was sent to the
+            // menu when we left; nothing else would bring it back in.
+            if (g.announced)
+                savefile_republish("the host started a new adventure after leaving "
+                                   "the previous one");
+        }
         g.was_in_run = true;
         g.out_polls  = 0;
         g.announced  = false;      // re-arm: a NEW run may be left later

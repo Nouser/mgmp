@@ -763,10 +763,31 @@ bool load_art(uint8_t mode) {
 // the function. The slot holds the real one. See kRva_SdlGetWindowSizeSlot.
 typedef int (__cdecl* fn_sdl_get_window_size)(void* window, int* w, int* h);
 
+// Is `p` inside the game's own image? A jump-table slot holds a pointer into
+// the game's .text; a slot RVA that has drifted to another build points at
+// whatever .data happens to hold there -- measured: a string -- and calling or
+// overwriting that must be refused rather than tried. SizeOfImage is read off
+// the PE header at g.base, so this needs no pinned constant of its own.
+bool in_game_image(const void* p) {
+    if (!g.base) return false;
+    uint32_t e_lfanew = 0, size_of_image = 0;
+    if (!mem_read((const void*)(g.base + 0x3C), &e_lfanew, sizeof(e_lfanew))) return false;
+    if (!mem_read((const void*)(g.base + e_lfanew + 24 + 56), &size_of_image,
+                  sizeof(size_of_image))) return false;
+    const uintptr_t v = (uintptr_t)p;
+    return v >= g.base && v < g.base + size_of_image;
+}
+
 fn_sdl_get_window_size sdl_size_fn(uint32_t rva) {
     if (!g.base) return nullptr;
     void* p = nullptr;
     if (!mem_read((const void*)(g.base + rva), &p, sizeof(p)) || !p) return nullptr;
+    if (!in_game_image(p)) {
+        log_line("OVERLAY", "!! the SDL slot at rva %08X holds %p, which is not in the"
+                            " game image -- the slot RVA is stale on this build; not"
+                            " calling it", rva, p);
+        return nullptr;
+    }
     return (fn_sdl_get_window_size)p;
 }
 
@@ -999,6 +1020,18 @@ void overlay_set_base(uintptr_t base) {
     if (!mem_read(slot, &prev, sizeof(prev)) || !prev) {
         log_line("OVERLAY", "!! the SDL swap slot at rva %08X does not hold a function"
                             " -- the peer pointer is OFF", kRva_SdlSwapSlot);
+        return;
+    }
+    // The value must be a function in the game image. On a drifted RVA it is
+    // whatever .data holds there, and writing the detour over it intercepts
+    // nothing while corrupting something -- which is exactly what happened on
+    // the first run against an updated build. Refuse loudly instead.
+    if (!in_game_image(prev)) {
+        log_line("OVERLAY", "!! the SDL swap slot at rva %08X holds %p, which is not"
+                            " inside the game image -- kRva_SdlSwapSlot is stale on"
+                            " this build (re-derive it with tools/rederive_sdl_slots.py)."
+                            " The swap is NOT taken over: no peer pointer and no"
+                            " debug panel", kRva_SdlSwapSlot, prev);
         return;
     }
 

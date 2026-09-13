@@ -661,6 +661,29 @@ void savefile_catchup(uint8_t peer) {
     publish(peer, /*fresh=*/false);
 }
 
+void savefile_republish(const char* why) {
+    ensure_state();
+    if (!g.on || g.is_client) return;
+    if (!g.have_slot) {
+        // Attached to a running game: no click was ever seen, so there is no
+        // file name to publish. savefile_pump already says so.
+        log_line("SAVEFILE", "!! cannot re-publish (%s): no slot was chosen in this"
+                             " process", why);
+        return;
+    }
+    g.published     = false;
+    g.publish_tries = 0;
+    g.click_mtime   = 0;
+    g.said_no_flush = false;
+    g.said_mid_node = false;
+    catsync_forget();
+    invsync_forget();
+    runhist_forget();
+    log_line("SAVEFILE", "re-publishing slot %u '%s' as a fresh pick (%s) -- the"
+                         " client drops whatever it holds and follows this run",
+             g.slot, g.name, why);
+}
+
 void savefile_pump() {
     ensure_state();
 

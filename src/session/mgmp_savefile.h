@@ -86,6 +86,18 @@ void savefile_set_base(uintptr_t base);
 // the host has not published yet, or on a client.
 void savefile_catchup(uint8_t peer);
 
+// HOST: publish the current slot again as a FRESH pick, without a slot click.
+//
+// The day cycle is the case: the adventure ends, the host goes to the house
+// (which mgmp_leave reports as leaving the run, and the client is taken back to
+// the menu), and the next morning the host walks straight into a new adventure
+// from the house. Nothing passes through the save-selection screen, so nothing
+// re-published, and the client sat on the menu -- or in the house -- forever.
+// mgmp_leave calls this when the host is back in a run after having announced
+// a departure. Same effect as a slot click: the per-run caches are forgotten
+// and the next savefile_pump sends the flushed live run with fresh = 1.
+void savefile_republish(const char* why);
+
 // From h_SaveSlotClick. Returns false if the caller must NOT run the original,
 // which is how a client's local pick is swallowed.
 bool savefile_on_slot_click(void* save_selection, int slot);

@@ -1079,7 +1079,22 @@ constexpr uint32_t kRva_MouseCache = 0x012F2E80;
 // Writing the slot is both simpler and more honest than hooking anything. It is
 // the indirection SDL_DYNAPI exists to provide, the table is in .data and
 // already writable, and "call the previous value" is the trampoline for free.
-constexpr uint32_t kRva_SdlSwapSlot = 0x012DE650;
+//
+// RE-PINNED for the current build (SizeOfImage 0x1574000): the whole jump table
+// moved by +0x9000 and now starts at the top of .data (0x012E7000). The three
+// slots below are index 202 / 558 / 559 of SDL_dynapi_procs.h (SDL 3.2's order,
+// which is append-only across 3.2.x) times 8 from that base, and each was
+// checked in the file image: the slot holds a DEFAULT stub that jumps back
+// through the same slot, and exactly two `jmp cs:[slot]` thunks name it.
+// tools/rederive_sdl_slots.py does that check for the next build. The old
+// values are kept in the comments above as the provenance of the indices.
+//
+// On the previous pin the slot at 0x012DE650 held the bytes of a STRING on
+// this build, the overlay wrote its detour over it, and the swap was never
+// intercepted -- so no peer cursor and no debug panel, with nothing in the log
+// but "swap taken over". overlay_set_base now refuses a slot whose value is
+// not inside the game image.
+constexpr uint32_t kRva_SdlSwapSlot = 0x012E7650;
 
 // THE MOUSE AND THE VIEWPORT ARE NOT THE SAME RULER, and these two slots are
 // how the overlay finally stopped guessing at the conversion.
@@ -1117,8 +1132,9 @@ constexpr uint32_t kRva_SdlSwapSlot = 0x012DE650;
 //
 //   SDL_GetWindowSize          @ 0x140B9CF10   jmp cs:off_1412DF170
 //   SDL_GetWindowSizeInPixels  @ 0x140B9CF20   jmp cs:off_1412DF178
-constexpr uint32_t kRva_SdlGetWindowSizeSlot   = 0x012DF170;
-constexpr uint32_t kRva_SdlGetWindowSizePxSlot = 0x012DF178;
+// Re-pinned with kRva_SdlSwapSlot (+0x9000; indices 558 and 559 of the table).
+constexpr uint32_t kRva_SdlGetWindowSizeSlot   = 0x012E8170;
+constexpr uint32_t kRva_SdlGetWindowSizePxSlot = 0x012E8178;
 
 // --- the game's own mouse cursor -------------------------------------------
 //
