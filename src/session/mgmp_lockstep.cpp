@@ -136,6 +136,16 @@ constexpr uintptr_t kTObj_Tile     = 0x48;
 // cat whose id does not simply ranks as "not in the lineup" (mgmp_split.h).
 constexpr uintptr_t kChar_CatData = 0x80;
 constexpr uintptr_t kCatData_Id   = 0x00;
+
+// Measured 2026-09-13 on the current build: *(Character+0x80) begins with a
+// vtable pointer, so +0 is not the id there, and the fixed read above found
+// nothing. Rather than pin another offset blind, the id is FOUND: the run's
+// own id list is known (catsync_run_ids), so scan the Character and the object
+// at +0x80 for any of those u64s and remember where it was. The hit offset is
+// logged once per battle, which is what turns the next build's answer into a
+// constant. Bounded, read-only, and only for human cats.
+constexpr uintptr_t kCharScanBytes    = 0x1000;
+constexpr uintptr_t kCatDataScanBytes = 0x400;
 constexpr uintptr_t kTObj_Owner    = 0x98;
 
 // glaiel::Character::get_affecting_elements(Character*, ElementList* out).
@@ -362,6 +372,55 @@ bool read_affecting_elements(const void* chr, uint32_t out[2]) {
 // 0x00000400 and the client faulted, then on the rerun the two swapped. Which
 // peer "wins" is a coin flip, which is exactly what a state hash must never
 // contain.
+// Where a cat's run id was found, said once per battle. `via` is the fixed
+// path (+0x80 -> +0), the Character itself, or the object at +0x80.
+struct IdHit { const char* via; uintptr_t off; };
+
+bool scan_for_id(const uint8_t* obj, uintptr_t bytes, const uint64_t* ids,
+                 uint32_t n, uint32_t* which, uintptr_t* off) {
+    uint64_t buf[64];
+    for (uintptr_t base = 0; base < bytes; base += sizeof(buf)) {
+        if (!mem_read(obj + base, buf, sizeof(buf))) return false;
+        for (uint32_t w = 0; w < 64; ++w) {
+            if (!buf[w]) continue;
+            for (uint32_t k = 0; k < n; ++k)
+                if (buf[w] == ids[k]) { *which = k; *off = base + w * 8; return true; }
+        }
+    }
+    return false;
+}
+
+bool find_run_id(const void* chr, const uint64_t* ids, uint32_t n, uint32_t* which) {
+    static IdHit said{ nullptr, 0 };
+    const uint8_t* c = (const uint8_t*)chr;
+    uintptr_t off = 0;
+
+    // The fixed path first: it is the answer once the offset is pinned.
+    const void* cd = nullptr;
+    uint64_t    id = 0;
+    if (mem_read(c + kChar_CatData, &cd, sizeof(cd)) && cd &&
+        mem_read((const uint8_t*)cd + kCatData_Id, &id, sizeof(id)) && id) {
+        for (uint32_t k = 0; k < n; ++k) if (ids[k] == id) { *which = k; return true; }
+    }
+    // A scan is only meaningful for ids that cannot occur by accident: a run
+    // whose ids were 1, 2, 3, 4 would match every small integer field on the
+    // Character. Such a run keeps the fixed path only.
+    for (uint32_t k = 0; k < n; ++k) if (ids[k] <= 0xFFFFFFull) return false;
+    IdHit hit{ nullptr, 0 };
+    if (scan_for_id(c, kCharScanBytes, ids, n, which, &off))
+        hit = { "Character", off };
+    else if (cd && scan_for_id((const uint8_t*)cd, kCatDataScanBytes, ids, n, which, &off))
+        hit = { "*(Character+0x80)", off };
+    if (!hit.via) return false;
+    if (said.via != hit.via || said.off != hit.off) {
+        said = hit;
+        log_line("LOCKSTEP", "cat run-id found at %s+0x%llX -- pin that as the CatData"
+                             " id path in mgmp_lockstep.cpp", hit.via,
+                 (unsigned long long)hit.off);
+    }
+    return true;
+}
+
 bool read_cat_state(const void* chr, CatState& out, bool in_battle = true) {
     out = CatState{};
     out.in_battle = in_battle ? 1 : 0;
@@ -777,21 +836,28 @@ void snapshot_cats(void* turn_control) {
     for (uint32_t i = 0; i < g.cat_count; ++i) {
         g.cat_id[i] = 0;
         g.lineup[i] = kNoLineup;
-        const void* cd = nullptr;
-        uint64_t    id = 0;
-        if (!mem_read((const uint8_t*)g.cats[i] + kChar_CatData, &cd, sizeof(cd)) || !cd) continue;
-        if (!mem_read((const uint8_t*)cd + kCatData_Id, &id, sizeof(id)) || !id) continue;
-        g.cat_id[i] = id;
-        for (uint32_t k = 0; k < run_n; ++k)
-            if (run_ids[k] == id) { g.lineup[i] = k; ++in_lineup; break; }
+        if (!g.human_cat[i] || run_n == 0) continue;   // only party cats can be in it
+        uint32_t k = 0;
+        if (find_run_id(g.cats[i], run_ids, run_n, &k)) {
+            g.cat_id[i] = run_ids[k];
+            g.lineup[i] = k;
+            ++in_lineup;
+        }
     }
     if (run_n == 0)
         log_line("LOCKSTEP", "!! the run's cat list is unreadable -- the split walks"
                              " roster order for this battle");
+    else if (in_lineup == 0 && g.humans && run_ids[0] <= 0xFFFFFFull)
+        log_line("LOCKSTEP", "!! the run's cat ids are small integers (first is %llu),"
+                             " so they cannot be searched for on the Character -- the"
+                             " CatData path needs pinning by hand; the split walks"
+                             " roster order for this battle", (unsigned long long)run_ids[0]);
     else if (in_lineup == 0 && g.humans)
-        log_line("LOCKSTEP", "!! none of %u cats matched the run's %u ids -- Character+0x%X"
-                             " is not the CatData on this build; the split walks roster"
-                             " order for this battle", g.cat_count, run_n, (unsigned)kChar_CatData);
+        log_line("LOCKSTEP", "!! none of %u human cats carries one of the run's %u ids"
+                             " anywhere in Character[0..0x%X] or *(Character+0x%X)[0..0x%X]"
+                             " -- the split walks roster order for this battle",
+                 g.humans, run_n, (unsigned)kCharScanBytes, (unsigned)kChar_CatData,
+                 (unsigned)kCatDataScanBytes);
 
     // --- the control split ---------------------------------------------
     for (uint32_t i = 0; i < kMaxCats; ++i) g.local_cat[i] = false;
